@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const MyApp());
@@ -30,74 +31,224 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   DateTime? dateFuture;
-  String _msg = "";
+  String msg = "";
+  String selectedDate = "";
+  bool usingForm = false;
+  String eventName = "";
+  late SharedPreferences prefs;
 
-  void _presentDatePicker() {
+  Map<String, String> dates = {};
+
+  Future<void> initData() async {
+    prefs = await SharedPreferences.getInstance();
+    for (String key in dates.keys) {
+      await prefs.setString(key, dates[key]!);
+    }
+    for (String key in prefs.getKeys()) {
+      String val = prefs.getString(key)!;
+      print("key $key value $val");
+      dates[key] = val;
+    }
+  }
+
+  Future<void> presentDatePicker() async {
     showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(0),
       lastDate: DateTime(3000),
-    ).then((pickedDate) {
+    ).then((pickedDate) async {
       if (pickedDate == null) return;
-      setState(() => dateFuture = pickedDate);
+      eventName = eventName.trim();
+      if (eventName == "") return;
+      String date = pickedDate.toIso8601String().substring(0, 10);
+      await prefs.setString(eventName, date);
+      setState(() {
+        dates[eventName] = date;
+        selectedDate = eventName;
+        dateFuture = pickedDate;
+        usingForm = false;
+      });
+    });
+  }
+
+  void selectDate(String v) {
+    setState(() {
+      selectedDate = v;
+      dateFuture = DateTime.tryParse(dates[v]!);
+    });
+  }
+
+  Future<void> removeDate() async {
+    await prefs.remove(selectedDate);
+    setState(() {
+      dates.remove(selectedDate);
+      selectedDate = "";
+      dateFuture = null;
+      msg = "";
+    });
+  }
+
+  void showForm() {
+    setState(() {
+      usingForm = true;
+      eventName = "";
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (dateFuture != null) {
-      _msg = datesToMsg(dateFuture!);
-    }
+    msg = datesToMsg(dateFuture);
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.add),
+            label: const Text("Neues Ereignis"),
+            onPressed: showForm,
+          ),
+          const SizedBox(width: 30),
+        ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(
-              _msg,
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            TextButton(
-              onPressed: _presentDatePicker,
-              child: const Text(
-                'Wähle ein Datum',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
+      body: FutureBuilder(
+        future: initData(),
+        builder: (ctx, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return Container();
+          }
+          return Center(
+            child: Stack(
+              children: [
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  // crossAxisAlignment: CrossAxisAlignment.center,
+                  children: <Widget>[
+                    PopupMenuButton(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          color: Colors.amber,
+                        ),
+                        alignment: Alignment.center,
+                        height: 50,
+                        width: 200,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(
+                            dates.isEmpty
+                                ? "Erst Ereignisse anlegen"
+                                : "Ereignis wählen",
+                            style: const TextStyle(
+                              // backgroundColor: Colors.red,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ),
+                      ),
+                      itemBuilder: (_) => [
+                        ...dates.keys.map((k) {
+                          return PopupMenuItem(
+                            value: k,
+                            child: Text(k),
+                          );
+                        })
+                      ],
+                      onSelected: (v) {
+                        selectDate(v);
+                      },
+                    ),
+                    if (selectedDate != "")
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            "$selectedDate: ${dates[selectedDate]}",
+                            style: const TextStyle(
+                              fontSize: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          IconButton(
+                            onPressed: removeDate,
+                            icon: const Icon(Icons.delete),
+                          ),
+                        ],
+                      ),
+                    if (msg != "")
+                      Card(
+                        color: const Color.fromARGB(148, 231, 227, 226),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Text(
+                            msg,
+                            style: const TextStyle(
+                              fontSize: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              ),
+                if (usingForm)
+                  Container(
+                    height: double.infinity,
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(50),
+                    color: Colors.white,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextField(
+                          onChanged: (v) {
+                            eventName = v;
+                          },
+                          decoration: const InputDecoration(
+                              labelText: 'Name des Ereignisses'),
+                        ),
+                        TextButton(
+                          onPressed: presentDatePicker,
+                          child: const Text(
+                            'Wähle ein Datum',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 }
 
-String datesToMsg(DateTime dateFuture) {
+String datesToMsg(DateTime? dateFuture) {
+  if (dateFuture == null) return "";
+  dateFuture = DateTime.utc(dateFuture.year, dateFuture.month, dateFuture.day);
   DateTime dateNow = DateTime.now();
   dateNow = DateTime.utc(dateNow.year, dateNow.month, dateNow.day);
-  dateFuture = DateTime.utc(dateFuture.year, dateFuture.month, dateFuture.day);
   // print("dtm $dateNow $dateFuture");
+
   String msg = "Noch ";
   bool akkusativ = true;
   int cmp = dateNow.compareTo(dateFuture);
   if (cmp == 0) {
-    msg = "Heute!";
-    return msg;
-  } else if (cmp > 0) {
+    return "Heute!";
+  }
+  if (cmp > 0) {
     msg = "Vor ";
     akkusativ = false;
     (dateNow, dateFuture) = (dateFuture, dateNow);
   }
 
-  DateTime date = dateNow;
   int days = dateFuture.difference(dateNow).inDays;
   // print("days $days");
+
+  DateTime date = dateNow;
   int y = 0;
   for (;;) {
     date = DateTime.utc(dateNow.year + y + 1, dateNow.month, dateNow.day);
@@ -132,7 +283,7 @@ String datesToMsg(DateTime dateFuture) {
   // print("year $y month $m days $d");
 
   if (y > 0) {
-    msg = "${msg + y.toString()} Jahr${plural(y, akkusativ)}";
+    msg = "$msg$y Jahr${plural(y, akkusativ)}";
     if (m > 0 && d > 0) {
       msg = "$msg, ";
     } else if (m > 0 || d > 0) {
@@ -140,14 +291,14 @@ String datesToMsg(DateTime dateFuture) {
     }
   }
   if (m > 0) {
-    msg = "${msg + m.toString()} Monat${plural(m, akkusativ)}";
+    msg = "$msg$m Monat${plural(m, akkusativ)}";
     if (d > 0) msg = "$msg und ";
   }
   if (d > 0 || y == 0 && m == 0) {
     msg = "$msg$d Tag${plural(d, akkusativ)}";
   }
   if (m > 0 || y > 0) {
-    msg = "$msg,\n$days Tag${plural(days, akkusativ)} insgesamt";
+    msg = "$msg,\ninsgesamt $days Tag${plural(days, akkusativ)}";
   }
   return msg;
 }
