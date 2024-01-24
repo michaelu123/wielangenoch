@@ -32,9 +32,9 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   DateTime? dateFuture;
   String msg = "";
-  String selectedDate = "";
   bool usingForm = false;
   String eventName = "";
+  String newEventName = "";
   late SharedPreferences prefs;
 
   Map<String, String> dates = {};
@@ -44,14 +44,26 @@ class _MyHomePageState extends State<MyHomePage> {
     for (String key in dates.keys) {
       await prefs.setString(key, dates[key]!);
     }
-    for (String key in prefs.getKeys()) {
+    dates.clear();
+    List<String> keys = prefs.getKeys().toList();
+    keys.sort((a, b) => a.compareTo(b));
+    for (String key in keys) {
       String val = prefs.getString(key)!;
-      print("key $key value $val");
-      dates[key] = val;
+      if (key == "current") {
+        eventName = val;
+      } else {
+        dates[key] = val;
+      }
+    }
+    if (eventName != "") {
+      String? d = dates[eventName];
+      if (d == null) return;
+      dateFuture = DateTime.tryParse(d);
+      msg = datesToMsg(dateFuture);
     }
   }
 
-  Future<void> presentDatePicker() async {
+  void presentDatePicker() {
     showDatePicker(
       context: context,
       initialDate: DateTime.now(),
@@ -59,31 +71,34 @@ class _MyHomePageState extends State<MyHomePage> {
       lastDate: DateTime(3000),
     ).then((pickedDate) async {
       if (pickedDate == null) return;
-      eventName = eventName.trim();
-      if (eventName == "") return;
+      String newName = newEventName.trim();
+      if (newName == "") return;
       String date = pickedDate.toIso8601String().substring(0, 10);
-      await prefs.setString(eventName, date);
+      dates[newName] = date;
       setState(() {
-        dates[eventName] = date;
-        selectedDate = eventName;
+        eventName = newName;
         dateFuture = pickedDate;
         usingForm = false;
       });
+      await prefs.setString(newName, date);
+      await prefs.setString("current", newName);
     });
   }
 
-  void selectDate(String v) {
+  Future<void> selectDate(String v) async {
+    await prefs.setString("current", v);
     setState(() {
-      selectedDate = v;
+      eventName = v;
       dateFuture = DateTime.tryParse(dates[v]!);
     });
   }
 
   Future<void> removeDate() async {
-    await prefs.remove(selectedDate);
+    await prefs.remove(eventName);
+    await prefs.remove("current");
     setState(() {
-      dates.remove(selectedDate);
-      selectedDate = "";
+      dates.remove(eventName);
+      eventName = "";
       dateFuture = null;
       msg = "";
     });
@@ -113,7 +128,7 @@ class _MyHomePageState extends State<MyHomePage> {
         ],
       ),
       body: FutureBuilder(
-        future: initData(),
+        future: eventName == "" ? initData() : null,
         builder: (ctx, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return Container();
@@ -159,12 +174,12 @@ class _MyHomePageState extends State<MyHomePage> {
                         selectDate(v);
                       },
                     ),
-                    if (selectedDate != "")
+                    if (eventName != "")
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            "$selectedDate: ${dates[selectedDate]}",
+                            "$eventName: ${dates[eventName]}",
                             style: const TextStyle(
                               fontSize: 20,
                             ),
@@ -203,7 +218,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       children: [
                         TextField(
                           onChanged: (v) {
-                            eventName = v;
+                            newEventName = v;
                           },
                           decoration: const InputDecoration(
                               labelText: 'Name des Ereignisses'),
